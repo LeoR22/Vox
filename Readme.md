@@ -5,6 +5,11 @@ Vox es una red social inspirada en Twitter/X, construida con una arquitectura de
 
 ---
 
+### Arquitectura
+
+![red_social](img/micorservicios.png)
+
+
 ## 🧱 Arquitectura del Proyecto
 
 ```bash
