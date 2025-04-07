@@ -1,4 +1,5 @@
 # 🐦 Vox - Red Social en Microservicios (Clon de Twitter/X)
+![Python](https://img.shields.io/badge/python-3670A0?style=flat&logo=python&logoColor=ffdd54) ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat&logo=fastapi) ![JWT](https://img.shields.io/badge/JWT-black?style=flat&logo=JSON%20web%20tokens) ![MongoDB](https://img.shields.io/badge/MongoDB-%234ea94b.svg?style=flat&logo=mongodb&logoColor=white) ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=flat&logo=docker&logoColor=white) ![React](https://img.shields.io/badge/react-%2320232a.svg?style=flat&logo=react&logoColor=%2361DAFB) ![Figma](https://img.shields.io/badge/figma-%23F24E1E.svg?style=flat&logo=figma&logoColor=white) 
 
 Vox es una red social inspirada en Twitter/X, construida con una arquitectura de **microservicios**, que permite escalar y mantener cada servicio de forma independiente. La solución está compuesta por servicios en **FastAPI**, usando bases de datos **MongoDB**, un **API Gateway** y una interfaz frontend en **React**.
 
