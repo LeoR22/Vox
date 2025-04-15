@@ -45,6 +45,10 @@ class User(BaseModel):
     bio: str
     user_id: str
 
+class UpdateCountRequest(BaseModel):
+    field: str  # "following_count" o "followers_count"
+    value: int  #
+
 # Función para hashear contraseña
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -63,13 +67,32 @@ async def create_user(user: User):
     result = users_collection.insert_one(user_dict)
     return {"message": "User created successfully", "user_id": user.user_id}
 
+@app.get("/users")
+async def get_all_users():
+    try:
+        users = list(users_collection.find())
+        if not users:
+            raise HTTPException(status_code=404, detail="No users found")
+        for user in users:
+            user["_id"] = str(user["_id"])  # Convertir ObjectId a string
+            user.pop("password", None)  # Eliminar la contraseña por seguridad
+        return users
+    except Exception as e:
+        logger.error(f"Error al obtener usuarios: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error al obtener usuarios")
+
 @app.get("/users/{user_id}")
 async def get_user(user_id: str):
-    user = users_collection.find_one({"user_id": user_id})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    user["_id"] = str(user["_id"])
-    return user
+    try:
+        user = users_collection.find_one({"user_id": user_id})
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        user["_id"] = str(user["_id"])
+        user.pop("password", None)  # Eliminar la contraseña por seguridad
+        return user
+    except Exception as e:
+        logger.error(f"Error al obtener usuario: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error al obtener usuario")
 
 @app.put("/users/{user_id}")
 async def update_user(
@@ -117,6 +140,33 @@ async def serve_uploaded_file(filename: str):
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Imagen no encontrada")
     return FileResponse(file_path)
+
+
+@app.put("/users/{user_id}/update-follow-count")
+async def update_follow_count(user_id: str, request: UpdateCountRequest):
+    try:
+        if request.field not in ["following_count", "followers_count"]:
+            raise HTTPException(status_code=400, detail="Campo inválido")
+        
+        # Verificar si el usuario existe
+        user = users_collection.find_one({"user_id": user_id})
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+        # Asegurarse de que el contador no sea menor que 0
+        current_count = user.get(request.field, 0)
+        new_count = max(0, current_count + request.value)
+
+        # Actualizar el contador
+        users_collection.update_one(
+            {"user_id": user_id},
+            {"$set": {request.field: new_count}}
+        )
+        return {"message": f"{request.field} actualizado a {new_count}"}
+    except Exception as e:
+        logger.error(f"Error al actualizar contador: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error al actualizar contador")
+
 
 if __name__ == "__main__":
     import uvicorn

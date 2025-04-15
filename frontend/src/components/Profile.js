@@ -59,22 +59,37 @@ const Profile = ({ token, userId, userName }) => {
     };
 
     const handleProfileImageChange = (e) => {
+        console.log('Profile image input changed:', e.target.files);
         const file = e.target.files[0];
         if (file) {
+            console.log('Profile image selected:', file.name);
             setProfileImageFile(file);
             setProfileImagePreview(URL.createObjectURL(file));
+        } else {
+            console.log('No profile image selected');
         }
     };
 
     const handleCoverImageChange = (e) => {
+        console.log('Cover image input changed:', e.target.files);
         const file = e.target.files[0];
         if (file) {
+            console.log('Cover image selected:', file.name);
             setCoverImageFile(file);
             setCoverImagePreview(URL.createObjectURL(file));
+        } else {
+            console.log('No cover image selected');
         }
     };
 
     const handleUpdateProfile = async () => {
+        console.log('Attempting to update profile images. profileImageFile:', profileImageFile, 'coverImageFile:', coverImageFile);
+        if (!profileImageFile && !coverImageFile) {
+            setMessage('Por favor, selecciona al menos una imagen para actualizar.');
+            console.log('No images selected, update aborted');
+            return;
+        }
+
         try {
             const formData = new FormData();
             if (profileImageFile) {
@@ -83,14 +98,15 @@ const Profile = ({ token, userId, userName }) => {
             if (coverImageFile) {
                 formData.append('cover_image', coverImageFile);
             }
-            console.log('Sending update request with profileImageFile:', profileImageFile, 'coverImageFile:', coverImageFile);
+            console.log('Sending update request with profileImageFile:', profileImageFile?.name, 'coverImageFile:', coverImageFile?.name);
             const response = await axios.put(`${API_URL}/users/${userId}`, formData, {
                 headers: {
                     Authorization: `Bearer ${token}`,
+                    'Content-Type': 'multipart/form-data',
                 },
             });
             console.log('Update response:', response.data);
-            setMessage('Perfil actualizado con éxito');
+            setMessage('Imágenes de perfil actualizadas con éxito');
             setProfileImageFile(null);
             setCoverImageFile(null);
             setProfileImagePreview(null);
@@ -98,7 +114,7 @@ const Profile = ({ token, userId, userName }) => {
             await fetchProfile();
         } catch (error) {
             const errorMessage = error.response?.data?.detail || error.message;
-            setMessage(`Error al actualizar perfil: ${errorMessage}`);
+            setMessage(`Error al actualizar las imágenes: ${errorMessage}`);
             console.error('Error en handleUpdateProfile:', error);
         }
     };
@@ -109,19 +125,27 @@ const Profile = ({ token, userId, userName }) => {
 
     const handleCloseEditDialog = () => {
         setOpenEditDialog(false);
+        setMessage('Edición cancelada');
         setEditBio(profile?.bio || '');
         setEditName(profile?.name || userName);
     };
 
     const handleSaveEditProfile = async () => {
+        if (!editBio && !editName) {
+            setMessage('Por favor, proporciona un nombre o una biografía para actualizar.');
+            setOpenEditDialog(false);
+            return;
+        }
+
         try {
             const formData = new FormData();
-            formData.append('bio', editBio);
-            formData.append('name', editName);
+            if (editBio) formData.append('bio', editBio);
+            if (editName) formData.append('name', editName);
             console.log('Sending edit profile request with bio:', editBio, 'name:', editName);
             const response = await axios.put(`${API_URL}/users/${userId}`, formData, {
                 headers: {
                     Authorization: `Bearer ${token}`,
+                    'Content-Type': 'multipart/form-data',
                 },
             });
             console.log('Edit profile response:', response.data);
@@ -147,6 +171,13 @@ const Profile = ({ token, userId, userName }) => {
             setLoading(false);
         };
         loadData();
+
+        // Opcional: Actualizar el perfil periódicamente para reflejar cambios
+        const interval = setInterval(() => {
+            fetchProfile();
+        }, 30000); // Cada 30 segundos
+
+        return () => clearInterval(interval); // Limpiar el intervalo al desmontar
     }, [userId, token, userName]);
 
     if (loading) {
@@ -173,6 +204,11 @@ const Profile = ({ token, userId, userName }) => {
                         }}
                     />
                 </Box>
+                {error && (
+                    <Typography sx={{ color: '#ff4d4f', mb: 2, bgcolor: '#3a3b3c', p: 1, borderRadius: 1 }}>
+                        {error}
+                    </Typography>
+                )}
                 <Paper sx={{ p: 2, mb: 2, bgcolor: '#3a3b3c', color: '#fff' }}>
                     <Box sx={{ position: 'relative', height: 150, bgcolor: '#1a1a1a', mb: 4 }}>
                         {profile?.cover_image_url || coverImagePreview ? (
@@ -201,7 +237,7 @@ const Profile = ({ token, userId, userName }) => {
                             <input type="file" accept="image/*" hidden onChange={handleProfileImageChange} />
                         </IconButton>
                     </Box>
-                    <Typography variant="h6">{userName}</Typography>
+                    <Typography variant="h6">{profile?.name || userName}</Typography>
                     <Typography variant="body2" sx={{ color: '#aaa' }}>
                         @{userName.toLowerCase().replace(/\s+/g, '')}
                     </Typography>
@@ -231,7 +267,7 @@ const Profile = ({ token, userId, userName }) => {
                             }}
                             onClick={handleUpdateProfile}
                         >
-                            Guardar cambios
+                            Guardar imágenes
                         </Button>
                         <Button
                             variant="outlined"
@@ -251,9 +287,9 @@ const Profile = ({ token, userId, userName }) => {
                         </Button>
                     </Box>
                 </Paper>
-                {error && (
-                    <Typography sx={{ color: '#ff4d4f', mb: 2, bgcolor: '#3a3b3c', p: 1, borderRadius: 1 }}>
-                        {error}
+                {message && (
+                    <Typography sx={{ mt: 2, color: message.includes('éxito') ? '#f5a623' : '#ff4d4f' }}>
+                        {message}
                     </Typography>
                 )}
                 <Typography variant="h6" sx={{ color: '#fff', mb: 2 }}>
@@ -273,14 +309,11 @@ const Profile = ({ token, userId, userName }) => {
                         />
                     ))
                 )}
-                {message && (
-                    <Typography sx={{ mt: 2, color: message.includes('éxito') ? '#f5a623' : '#ff4d4f' }}>
-                        {message}
-                    </Typography>
-                )}
                 <Dialog open={openEditDialog} onClose={handleCloseEditDialog}>
-                    <DialogTitle>Editar perfil</DialogTitle>
-                    <DialogContent>
+                    <DialogTitle sx={{ bgcolor: '#292A2C', color: '#fff' }}>
+                        Editar perfil
+                    </DialogTitle>
+                    <DialogContent sx={{ bgcolor: '#292A2C', color: '#fff' }}>
                         <TextField
                             label="Nombre"
                             value={editName}
@@ -288,7 +321,13 @@ const Profile = ({ token, userId, userName }) => {
                             fullWidth
                             margin="normal"
                             inputProps={{ maxLength: 50 }}
-                            sx={{ bgcolor: '#3a3b3c', color: '#fff', input: { color: '#fff' } }}
+                            sx={{
+                                bgcolor: '#3a3b3c',
+                                input: { color: '#fff' },
+                                label: { color: '#aaa' },
+                                '& .MuiOutlinedInput-notchedOutline': { borderColor: '#aaa' },
+                                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#f5a623' },
+                            }}
                         />
                         <TextField
                             label="Biografía"
@@ -299,14 +338,43 @@ const Profile = ({ token, userId, userName }) => {
                             rows={4}
                             margin="normal"
                             inputProps={{ maxLength: 160 }}
-                            sx={{ bgcolor: '#3a3b3c', color: '#fff', input: { color: '#fff' }, textarea: { color: '#fff' } }}
+                            sx={{
+                                bgcolor: '#3a3b3c',
+                                textarea: { color: '#fff' },
+                                label: { color: '#aaa' },
+                                '& .MuiOutlinedInput-notchedOutline': { borderColor: '#aaa' },
+                                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#f5a623' },
+                            }}
                         />
                     </DialogContent>
-                    <DialogActions>
-                        <Button onClick={handleCloseEditDialog} sx={{ color: '#fff' }}>
+                    <DialogActions sx={{ bgcolor: '#292A2C', p: 2 }}>
+                        <Button
+                            onClick={handleCloseEditDialog}
+                            variant="outlined"
+                            sx={{
+                                color: '#ff4d4f',
+                                borderColor: '#ff4d4f',
+                                borderRadius: 20,
+                                '&:hover': {
+                                    borderColor: '#ff6666',
+                                    backgroundColor: '#ff4d4f33',
+                                },
+                            }}
+                        >
                             Cancelar
                         </Button>
-                        <Button onClick={handleSaveEditProfile} sx={{ color: '#f5a623' }}>
+                        <Button
+                            onClick={handleSaveEditProfile}
+                            variant="contained"
+                            sx={{
+                                background: 'linear-gradient(90deg, #F87224, #D9332E)',
+                                color: '#fff',
+                                borderRadius: 20,
+                                '&:hover': {
+                                    background: 'linear-gradient(90deg, #E69520, #C9302C)',
+                                },
+                            }}
+                        >
                             Guardar
                         </Button>
                     </DialogActions>

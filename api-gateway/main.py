@@ -34,6 +34,7 @@ CHAT_SERVICE_URL = os.getenv("CHAT_SERVICE_URL", "http://chat-service:8007")
 
 # Helper function para manejar solicitudes HTTP
 async def forward_request(method: str, url: str, json=None, data=None, files=None, headers=None, timeout=10):
+    logger.info(f"Headers enviados a {url}: {headers}")
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
             if method == "POST":
@@ -41,17 +42,25 @@ async def forward_request(method: str, url: str, json=None, data=None, files=Non
             elif method == "GET":
                 response = await client.get(url, headers=headers)
             elif method == "PUT":
-                response = await client.put(url, data=data, files=files, headers=headers)
+                response = await client.put(url, json=json, data=data, files=files, headers=headers)
+            elif method == "DELETE":
+                response = await client.delete(url, headers=headers)
             else:
                 raise ValueError(f"Método no soportado: {method}")
             response.raise_for_status()
             try:
+                if "Content-Type" in response.headers and "image" in response.headers["Content-Type"]:
+                    return StreamingResponse(
+                        content=response.iter_bytes(),
+                        status_code=response.status_code,
+                        headers={"Content-Type": response.headers.get("Content-Type", "image/png")}
+                    )
                 return response.json()
             except ValueError:
                 return response.text
         except httpx.HTTPStatusError as e:
             logger.error(f"Error en {method} a {url}: {e.response.status_code} - {e.response.text}")
-            raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+            raise HTTPException(status_code=e.response.status_code, detail=e.response.json())
         except httpx.RequestError as e:
             logger.error(f"Error de red en {method} a {url}: {str(e)}")
             raise HTTPException(status_code=503, detail=f"No se pudo conectar al servicio en {url}")
@@ -76,27 +85,61 @@ async def get_user(user_id: str, request: Request):
     logger.info(f"Enviando solicitud de usuario a {USER_SERVICE_URL}/users/{user_id}")
     return await forward_request("GET", f"{USER_SERVICE_URL}/users/{user_id}", headers=headers)
 
+@app.get("/users")
+async def get_all_users(request: Request):
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de todos los usuarios a {USER_SERVICE_URL}/users")
+    return await forward_request("GET", f"{USER_SERVICE_URL}/users", headers=headers)
+
 @app.put("/users/{user_id}")
 async def update_user(user_id: str, request: Request):
     headers = {"Authorization": request.headers.get("Authorization", "")}
     form_data = await request.form()
-    files = {
-        "profile_image": (form_data["profile_image"].filename, await form_data["profile_image"].read(), form_data["profile_image"].content_type)
-        if "profile_image" in form_data and form_data["profile_image"]
-        else None,
-        "cover_image": (form_data["cover_image"].filename, await form_data["cover_image"].read(), form_data["cover_image"].content_type)
-        if "cover_image" in form_data and form_data["cover_image"]
-        else None,
-    }
-    files = {k: v for k, v in files.items() if v is not None}
-    logger.info(f"Enviando solicitud de actualización de usuario a {USER_SERVICE_URL}/users/{user_id}")
-    return await forward_request("PUT", f"{USER_SERVICE_URL}/users/{user_id}", files=files, headers=headers)
+    files = {}
+    data = {}
+
+    # Manejar archivos (profile_image y cover_image)
+    if "profile_image" in form_data and form_data["profile_image"] and form_data["profile_image"].filename:
+        file_content = await form_data["profile_image"].read()
+        if file_content:  # Verificar que el archivo no esté vacío
+            files["profile_image"] = (
+                form_data["profile_image"].filename,
+                file_content,
+                form_data["profile_image"].content_type
+            )
+    if "cover_image" in form_data and form_data["cover_image"] and form_data["cover_image"].filename:
+        file_content = await form_data["cover_image"].read()
+        if file_content:  # Verificar que el archivo no esté vacío
+            files["cover_image"] = (
+                form_data["cover_image"].filename,
+                file_content,
+                form_data["cover_image"].content_type
+            )
+
+    # Manejar campos de texto (bio y name)
+    if "bio" in form_data and form_data["bio"] is not None:
+        data["bio"] = form_data["bio"]
+    if "name" in form_data and form_data["name"] is not None:
+        data["name"] = form_data["name"]
+
+    # Verificar que haya algo para actualizar
+    if not files and not data:
+        raise HTTPException(status_code=400, detail="No se proporcionaron datos ni archivos para actualizar")
+
+    logger.info(f"Enviando solicitud de actualización de usuario a {USER_SERVICE_URL}/users/{user_id} con data: {data}, files: {list(files.keys())}")
+    return await forward_request("PUT", f"{USER_SERVICE_URL}/users/{user_id}", data=data, files=files, headers=headers)
+
+@app.put("/users/{user_id}/update-follow-count")
+async def update_follow_count(user_id: str, request: Request):
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de actualización de contador a {USER_SERVICE_URL}/users/{user_id}/update-follow-count")
+    return await forward_request("PUT", f"{USER_SERVICE_URL}/users/{user_id}/update-follow-count", headers=headers, json=await request.json())
 
 # Post Service
 @app.post("/posts")
 async def create_post(request: Request):
     form_data = await request.form()
-    files = {"image": (form_data["image"].filename, await form_data["image"].read(), form_data["image"].content_type)} if "image" in form_data and form_data["image"] else None
+    files = {"image": (form_data["image"].filename, await form_data["image"].read(), form_data["image"].content_type)} if "image" in form_data and form_data["image"] and form_data["image"].filename else None
     data = {key: form_data[key] for key in form_data if key != "image"}
     headers = {"Authorization": request.headers.get("Authorization", "")}
     logger.info(f"Enviando solicitud de creación de post a {POST_SERVICE_URL}/posts")
@@ -130,7 +173,55 @@ async def add_comment(post_id: str, request: Request):
     logger.info(f"Enviando solicitud de comentario a {COMMENT_SERVICE_URL}/posts/{post_id}/comments")
     return await forward_request("POST", f"{COMMENT_SERVICE_URL}/posts/{post_id}/comments", json=data, headers=headers)
 
-# Proxy para servir imágenes desde el post-service
+# Friend Service
+@app.post("/friends/follow/{follow_id}")
+async def follow_user(follow_id: str, request: Request):
+    data = await request.json()
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de seguir a {FRIEND_SERVICE_URL}/friends/follow/{follow_id}")
+    return await forward_request("POST", f"{FRIEND_SERVICE_URL}/friends/follow/{follow_id}", json=data, headers=headers)
+
+@app.post("/friends/unfollow/{follow_id}")
+async def unfollow_user(follow_id: str, request: Request):
+    data = await request.json()
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de dejar de seguir a {FRIEND_SERVICE_URL}/friends/unfollow/{follow_id}")
+    return await forward_request("POST", f"{FRIEND_SERVICE_URL}/friends/unfollow/{follow_id}", json=data, headers=headers)
+
+@app.get("/friends/following/{user_id}")
+async def get_following(user_id: str, request: Request):
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de usuarios seguidos a {FRIEND_SERVICE_URL}/friends/following/{user_id}")
+    return await forward_request("GET", f"{FRIEND_SERVICE_URL}/friends/following/{user_id}", headers=headers)
+
+@app.get("/friends/followers/{user_id}")
+async def get_followers(user_id: str, request: Request):
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de seguidores a {FRIEND_SERVICE_URL}/friends/followers/{user_id}")
+    return await forward_request("GET", f"{FRIEND_SERVICE_URL}/friends/followers/{user_id}", headers=headers)
+
+@app.get("/friends/{user_id}")
+async def get_friends(user_id: str, request: Request):
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de amigos a {FRIEND_SERVICE_URL}/friends/{user_id}")
+    return await forward_request("GET", f"{FRIEND_SERVICE_URL}/friends/{user_id}", headers=headers)
+
+# Chat Service (Comentado temporalmente para evitar errores)
+# @app.get("/messages")
+# async def get_messages(request: Request):
+#     headers = {"Authorization": request.headers.get("Authorization", "")}
+#     query_params = request.query_params
+#     logger.info(f"Enviando solicitud de mensajes a {CHAT_SERVICE_URL}/messages?{query_params}")
+#     return await forward_request("GET", f"{CHAT_SERVICE_URL}/messages?{query_params}", headers=headers)
+
+# @app.post("/messages")
+# async def send_message(request: Request):
+#     data = await request.json()
+#     headers = {"Authorization": request.headers.get("Authorization", "")}
+#     logger.info(f"Enviando solicitud de envío de mensaje a {CHAT_SERVICE_URL}/messages")
+#     return await forward_request("POST", f"{CHAT_SERVICE_URL}/messages", json=data, headers=headers)
+
+# Proxy para servir imágenes desde el post-service o user-service
 @app.get("/uploads/{path:path}")
 async def serve_uploaded_file(path: str):
     logger.info(f"Intentando proxificar imagen: {path}")
@@ -163,14 +254,6 @@ async def serve_uploaded_file(path: str):
         except httpx.RequestError as e:
             logger.error(f"Error de red al obtener imagen: {str(e)}")
             raise HTTPException(status_code=503, detail="No se pudo conectar al servicio")
-
-# Friend Service
-@app.post("/friends/follow/{follow_id}")
-async def follow_user(follow_id: str, request: Request):
-    data = await request.json()
-    headers = {"Authorization": request.headers.get("Authorization", "")}
-    logger.info(f"Enviando solicitud de seguir a {FRIEND_SERVICE_URL}/friends/follow/{follow_id}")
-    return await forward_request("POST", f"{FRIEND_SERVICE_URL}/friends/follow/{follow_id}", json=data, headers=headers)
 
 if __name__ == "__main__":
     import uvicorn

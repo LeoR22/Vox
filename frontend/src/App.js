@@ -7,6 +7,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import Profile from './components/Profile';
 import Messages from './components/Messages';
+import Explore from './components/Explore'; // Nueva importación
 
 const NotImplemented = ({ title }) => (
   <Box sx={{ color: '#fff', textAlign: 'center', mt: 5 }}>
@@ -82,8 +83,12 @@ const App = () => {
                         path="/messages"
                         element={<Messages token={token} userId={userId} userName={userName} />}
                       />
-                      <Route path="/explore" element={<NotImplemented title="Explorar" />} />
+                      <Route
+                        path="/explore"
+                        element={<Explore token={token} userId={userId} />}
+                      />
                       <Route path="/notifications" element={<NotImplemented title="Notificaciones" />} />
+                      <Route path="/explore" element={<NotImplemented title="Explorar" />} />
                       <Route path="/bookmarks" element={<NotImplemented title="Guardados" />} />
                       <Route path="/lists" element={<NotImplemented title="Listas" />} />
                       <Route path="/more" element={<NotImplemented title="Más Opciones" />} />
