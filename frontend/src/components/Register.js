@@ -1,37 +1,37 @@
 import React, { useState } from 'react';
-import { Box, TextField, Button, Typography, IconButton } from '@mui/material';
-import { Facebook } from '@mui/icons-material';
+import { Box, TextField, Button, Typography } from '@mui/material';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
-const Login = ({ onLogin }) => {
+const Register = ({ onRegister }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
+    const [name, setName] = useState('');
+    const [bio, setBio] = useState('');
+    const [message, setMessage] = useState('');
     const navigate = useNavigate();
 
     const API_URL = 'http://localhost:8000';
 
-    const handleLogin = async () => {
-        console.log('Intentando iniciar sesión con:', { email, password });
+    const handleRegister = async () => {
         try {
-            const response = await axios.post(`${API_URL}/auth/login`, { email, password });
-            console.log('Respuesta del login:', response.data);
-            const { token, user_id, name } = response.data;
-            // Almacenar token y user_id en localStorage
-            localStorage.setItem('token', token);
-            localStorage.setItem('user_id', user_id);
-            localStorage.setItem('name', name);
-            onLogin(token, user_id, name);
-            navigate('/home'); // Redirigir a /home tras login exitoso
+            const response = await axios.post(`${API_URL}/users`, {
+                email,
+                password,
+                name,
+                bio,
+                user_id: email.split('@')[0], // Esto está bien para generar user_id
+            });
+            setMessage('Registro exitoso. Por favor, inicia sesión.');
+            onRegister(response.data.user_id, name);
+            setTimeout(() => navigate('/'), 2000); // Redirige a login tras 2 segundos
         } catch (error) {
-            console.error('Error completo:', error);
-            setError('Error al iniciar sesión: ' + (error.response?.data?.detail || error.message));
+            console.error('Error al registrarse:', error);
+            setMessage(
+                'Error al registrarse: ' +
+                (error.response?.data?.detail || error.message)
+            );
         }
-    };
-
-    const handleFacebookLogin = () => {
-        setError('Inicio de sesión con Facebook no implementado');
     };
 
     return (
@@ -67,11 +67,11 @@ const Login = ({ onLogin }) => {
                         style={{ width: '50px', height: '50px', marginBottom: '8px' }}
                     />
                     <Typography variant="h5" sx={{ mb: 2, color: '#fff' }}>
-                        Inicia sesión en Vox
+                        Regístrate en Vox
                     </Typography>
                 </Box>
                 <TextField
-                    label="Teléfono, correo electrónico"
+                    label="Correo electrónico"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     fullWidth
@@ -83,6 +83,22 @@ const Login = ({ onLogin }) => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     fullWidth
+                    sx={{ mb: 2, bgcolor: '#fff' }}
+                />
+                <TextField
+                    label="Nombre"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    fullWidth
+                    sx={{ mb: 2, bgcolor: '#fff' }}
+                />
+                <TextField
+                    label="Biografía"
+                    value={bio}
+                    onChange={(e) => setBio(e.target.value)}
+                    fullWidth
+                    multiline
+                    minRows={2}
                     sx={{ mb: 2, bgcolor: '#fff' }}
                 />
                 <Button
@@ -97,35 +113,27 @@ const Login = ({ onLogin }) => {
                             background: 'linear-gradient(90deg, #E69520, #C9302C)',
                         },
                     }}
-                    onClick={handleLogin}
+                    onClick={handleRegister}
                 >
                     Siguiente
                 </Button>
-                <Typography variant="body2" sx={{ color: '#fff', mb: 2 }}>
-                    ¿Olvidaste tu contraseña?
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#fff', mb: 2 }}>
-                    ¿No tienes una cuenta?{' '}
-                    <span
-                        style={{ color: '#f5a623', cursor: 'pointer', textDecoration: 'underline' }}
-                        onClick={() => navigate('/register')}
-                    >
-                        Regístrate
-                    </span>
-                </Typography>
-                <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
-                    <IconButton onClick={handleFacebookLogin}>
-                        <Facebook sx={{ color: '#3b5998' }} />
-                    </IconButton>
-                </Box>
-                {error && (
-                    <Typography color="error" sx={{ mt: 2 }}>
-                        {error}
+                {message && (
+                    <Typography sx={{ mt: 2, color: message.includes('exitoso') ? '#fff' : 'error.main' }}>
+                        {message}
                     </Typography>
                 )}
+                <Typography variant="body2" sx={{ color: '#fff', mt: 2 }}>
+                    ¿Ya tienes una cuenta?{' '}
+                    <span
+                        style={{ color: '#f5a623', cursor: 'pointer' }}
+                        onClick={() => navigate('/')}
+                    >
+                        Inicia sesión
+                    </span>
+                </Typography>
             </Box>
         </Box>
     );
 };
 
-export default Login;
+export default Register;

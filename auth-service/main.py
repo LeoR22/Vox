@@ -1,67 +1,79 @@
 from fastapi import FastAPI, HTTPException
 from pymongo import MongoClient
-from passlib.context import CryptContext
-from jose import jwt
-from datetime import datetime, timedelta
 from pydantic import BaseModel
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
+import logging
+import time
+import jwt
+import bcrypt
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
 app = FastAPI(title="Auth Service")
 
-# Configuración de MongoDB
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:27017/auth_db")
-client = MongoClient(MONGO_URI)
-db = client["auth_db"]
+# Configuración de MongoDB con reintentos
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:27017/user_db")  # Cambiar a user_db
+JWT_SECRET = os.getenv("JWT_SECRET", "your_jwt_secret")  # Asegúrate de que sea un secreto fuerte en producción
+
+for attempt in range(10):
+    try:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        client.server_info()  # Verifica la conexión
+        logger.info("Conexión a MongoDB establecida correctamente")
+        break
+    except Exception as e:
+        logger.error(f"Intento {attempt + 1} fallido: {str(e)}")
+        if attempt < 9:
+            time.sleep(5)  # Espera 5 segundos antes de reintentar
+        else:
+            raise Exception(f"No se pudo conectar a MongoDB tras 10 intentos: {str(e)}")
+
+db = client["user_db"]  # Usar user_db en lugar de auth_db
 users_collection = db["users"]
 
-# Configuración de JWT
-SECRET_KEY = os.getenv("SECRET_KEY", "my-super-secret-key-1234567890")
-ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
-
-# Configuración de hashing de contraseñas
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# Modelos Pydantic
-class User(BaseModel):
+# Modelo Pydantic para login
+class LoginData(BaseModel):
     email: str
     password: str
 
-# Funciones auxiliares
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+# Función para verificar contraseña
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
-def get_password_hash(password):
-    return pwd_context.hash(password)
+# Ruta para login
+@app.post("/auth/login")
+async def login(login_data: LoginData):
+    logger.info(f"Buscando usuario con email: {login_data.email}")
+    user = users_collection.find_one({"email": login_data.email})
+    if not user:
+        logger.warning(f"Usuario no encontrado: {login_data.email}")
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # Verificar la contraseña con bcrypt
+    if "password" not in user or not verify_password(login_data.password, user["password"]):
+        logger.warning(f"Contraseña incorrecta para: {login_data.email}")
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # Generar JWT
+    token_payload = {
+        "user_id": user["user_id"],
+        "email": user["email"],
+        "exp": time.time() + 3600  # Token expira en 1 hora
+    }
+    token = jwt.encode(token_payload, JWT_SECRET, algorithm="HS256")
+    
+    logger.info(f"Login exitoso para user_id: {user['user_id']}")
+    return {
+        "token": token,
+        "user_id": user["user_id"],
+        "name": user["name"]
+    }
 
-def create_access_token(data: dict, expires_delta: timedelta = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-# Rutas
-@app.post("/register")
-async def register(user: User):
-    if users_collection.find_one({"email": user.email}):
-        raise HTTPException(status_code=400, detail="Email already registered")
-    hashed_password = get_password_hash(user.password)
-    user_dict = {"email": user.email, "hashed_password": hashed_password}
-    users_collection.insert_one(user_dict)
-    return {"message": "User registered successfully"}
-
-@app.post("/login")
-async def login(user: User):
-    db_user = users_collection.find_one({"email": user.email})
-    if not db_user or not verify_password(user.password, db_user["hashed_password"]):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(data={"sub": user.email}, expires_delta=access_token_expires)
-    return {"access_token": access_token, "token_type": "bearer"}
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)

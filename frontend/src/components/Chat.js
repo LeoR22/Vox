@@ -31,6 +31,7 @@ const Chat = ({ token, userId }) => {
         const websocket = new WebSocket(`ws://localhost:8000/ws/chat/${userId}`);
         websocket.onopen = () => {
             websocket.send(`Bearer ${token}`);
+            setMessageError(''); // Limpiamos el mensaje de error si la conexión es exitosa
         };
         websocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
@@ -70,7 +71,7 @@ const Chat = ({ token, userId }) => {
     };
 
     return (
-        <Box sx={{ width: 300, p: 2, borderLeft: '1px solid #e0e0e0' }}>
+        <Box sx={{ width: 300, p: 2, bgcolor: '#000', color: '#fff' }}>
             <Typography variant="h6">Chat</Typography>
             <TextField
                 fullWidth
@@ -79,7 +80,7 @@ const Chat = ({ token, userId }) => {
                 onChange={(e) => setReceiverId(e.target.value)}
                 variant="outlined"
                 size="small"
-                sx={{ mt: 1 }}
+                sx={{ mt: 1, bgcolor: '#fff' }}
             />
             <Button
                 variant="contained"
@@ -119,7 +120,7 @@ const Chat = ({ token, userId }) => {
                 onChange={(e) => setNewMessage(e.target.value)}
                 variant="outlined"
                 size="small"
-                sx={{ mt: 1 }}
+                sx={{ mt: 1, bgcolor: '#fff' }}
             />
             <Button
                 variant="contained"

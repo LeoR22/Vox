@@ -1,31 +1,29 @@
 version: '3.8'
 
 services:
-  # API Gateway
   api-gateway:
     build: ./api-gateway
     ports:
       - "8000:8000"
     environment:
       - AUTH_SERVICE_URL=http://auth-service:8001
-      - USER_SERVICE_URL=http://user-service:8002
-      - POST_SERVICE_URL=http://post-service:8003
-      - COMMENT_SERVICE_URL=http://comment-service:8004
-      - LIKE_SERVICE_URL=http://like-service:8008
+      - USER_SERVICE_URL=http://user-service:8000
+      - POST_SERVICE_URL=http://post-service:8000
+      - LIKE_SERVICE_URL=http://like-service:8000
+      - COMMENT_SERVICE_URL=http://comment-service:8000
       - FRIEND_SERVICE_URL=http://friend-service:8006
       - CHAT_SERVICE_URL=http://chat-service:8007
     depends_on:
       - auth-service
       - user-service
       - post-service
-      - comment-service
       - like-service
+      - comment-service
       - friend-service
       - chat-service
     networks:
       - twitter_clone_network
 
-  # Auth Service
   auth-service:
     build: ./auth-service
     ports:
@@ -34,59 +32,64 @@ services:
       - MONGO_URI=mongodb://mongo:27017/auth_db
       - JWT_SECRET=your_jwt_secret
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     networks:
       - twitter_clone_network
 
-  # User Service
   user-service:
     build: ./user-service
     ports:
-      - "8002:8002"
+      - "8002:8000"
     environment:
       - MONGO_URI=mongodb://mongo:27017/user_db
+    volumes:
+      - ./user-service/uploads:/app/uploads
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     networks:
       - twitter_clone_network
 
-  # Post Service
   post-service:
     build: ./post-service
     ports:
-      - "8003:8003"
+      - "8003:8000"
     environment:
       - MONGO_URI=mongodb://mongo:27017/post_db
+      - API_GATEWAY_URL=http://api-gateway:8000
+    volumes:
+      - ./post-service/uploads:/app/uploads
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     networks:
       - twitter_clone_network
 
-  # Comment Service
-  comment-service:
-    build: ./comment-service
-    ports:
-      - "8004:8004"
-    environment:
-      - MONGO_URI=mongodb://mongo:27017/comment_db
-    depends_on:
-      - mongo
-    networks:
-      - twitter_clone_network
-
-  # Like Service
   like-service:
     build: ./like-service
     ports:
-      - "8008:8008"
+      - "8008:8000"
     environment:
-      - MONGO_URI=mongodb://mongo:27017/like_db
+      - MONGO_URI=mongodb://mongo:27017/post_db
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     networks:
       - twitter_clone_network
 
-  # Friend Service
+  comment-service:
+    build: ./comment-service
+    ports:
+      - "8004:8000"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/post_db
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - twitter_clone_network
+
   friend-service:
     build: ./friend-service
     ports:
@@ -94,33 +97,38 @@ services:
     environment:
       - MONGO_URI=mongodb://mongo:27017/friend_db
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     networks:
       - twitter_clone_network
 
-  # Chat Service
   chat-service:
     build: ./chat-service
     ports:
-      - "8007:8007"
+      - "8007:8000"
     environment:
       - MONGO_URI=mongodb://mongo:27017/chat_db
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     networks:
       - twitter_clone_network
 
-  # MongoDB
   mongo:
     image: mongo:latest
     ports:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh mongodb://localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - twitter_clone_network
 
-  # Frontend
   frontend:
     build: ./frontend
     ports:

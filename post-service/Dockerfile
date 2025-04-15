@@ -7,4 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8003"]
+# 🔽 Asegúrate de que la carpeta existe y asígnale permisos
+RUN mkdir -p /app/uploads && chmod -R 777 /app/uploads
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

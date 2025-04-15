@@ -6,3 +6,5 @@ passlib[bcrypt]==1.7.4  # Para hashear contraseñas
 python-dotenv==1.0.1  # Para manejar variables de entorno
 httpx==0.27.2  # Para comunicación entre microservicios (en api-gateway)
 pydantic==2.1.1  # Para validación de datos
+python-multipart==0.0.6  # Para manejar archivos subidos (en api-gateway)
+tenacity==8.2.2  # Para reintentos en caso de fallos de conexión (en api-gateway)

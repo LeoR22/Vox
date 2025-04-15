@@ -1,61 +1,99 @@
-import React, { useState } from 'react';
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom'; // Eliminamos useNavigate
-import Login from './components/Login';
-import Feed from './components/Feed';
+import React, { useState, useCallback, useEffect } from 'react';
+import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import { Box } from '@mui/material';
 import Sidebar from './components/Sidebar';
-import Chat from './components/Chat';
-import { Box, AppBar, Toolbar, Typography, IconButton } from '@mui/material';
-import TwitterIcon from '@mui/icons-material/Twitter';
+import Feed from './components/Feed';
+import Login from './components/Login';
+import Register from './components/Register';
+import Profile from './components/Profile';
+import Messages from './components/Messages';
 
-function App() {
-  const [token, setToken] = useState(null);
-  const [userId, setUserId] = useState(null);
-  const [userName, setUserName] = useState(''); // Aseguramos que userName tenga un valor inicial
+const NotImplemented = ({ title }) => (
+  <Box sx={{ color: '#fff', textAlign: 'center', mt: 5 }}>
+    <h2>{title}</h2>
+    <p>Esta funcionalidad está en desarrollo. Vuelve pronto.</p>
+  </Box>
+);
 
-  const handleLogin = (newToken, newUserId, name) => {
+const NotFound = () => (
+  <Box sx={{ color: '#fff', textAlign: 'center', mt: 5 }}>
+    <h2>Página no encontrada</h2>
+    <p>La ruta solicitada no existe.</p>
+  </Box>
+);
+
+const App = () => {
+  const [token, setToken] = useState(localStorage.getItem('token') || '');
+  const [userId, setUserId] = useState(localStorage.getItem('userId') || '');
+  const [userName, setUserName] = useState(localStorage.getItem('userName') || '');
+
+  const handleLogin = useCallback((newToken, newUserId, newUserName) => {
+    console.log('Logging in:', { newToken, newUserId, newUserName });
     setToken(newToken);
     setUserId(newUserId);
-    setUserName(name || 'Usuario'); // Aseguramos que name no sea undefined
-  };
+    setUserName(newUserName);
+    localStorage.setItem('token', newToken);
+    localStorage.setItem('userId', newUserId);
+    localStorage.setItem('userName', newUserName);
+  }, []);
 
-  const handleLogout = () => {
-    setToken(null);
-    setUserId(null);
+  const handleRegister = useCallback((newUserId, newUserName) => {
+    console.log('Registering:', { newUserId, newUserName });
+    setUserId(newUserId);
+    setUserName(newUserName);
+    localStorage.setItem('userId', newUserId);
+    localStorage.setItem('userName', newUserName);
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    console.log('Logging out');
+    setToken('');
+    setUserId('');
     setUserName('');
-    window.location.href = '/';
-  };
+    localStorage.removeItem('token');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('userName');
+  }, []);
+
+  useEffect(() => {
+    console.log('App state:', { token: !!token, tokenValue: token, userId, userName });
+  }, [token, userId, userName]);
 
   return (
     <Router>
-      <Box sx={{ flexGrow: 1 }}>
-        <AppBar position="static" sx={{ bgcolor: '#1da1f2' }}>
-          <Toolbar>
-            <IconButton edge="start" color="inherit" aria-label="menu">
-              <TwitterIcon />
-            </IconButton>
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
-              Twitter Clone
-            </Typography>
-          </Toolbar>
-        </AppBar>
+      <Box sx={{ display: 'flex', bgcolor: '#292A2C', minHeight: '100vh', width: '100%' }}>
         <Routes>
-          <Route path="/" element={<Login onLogin={handleLogin} />} />
+          <Route path="/login" element={<Login onLogin={handleLogin} />} />
+          <Route path="/register" element={<Register onRegister={handleRegister} />} />
           <Route
-            path="/home"
+            path="*"
             element={
-              token && userId ? (
-                <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-                  <Sidebar
-                    token={token}
-                    userId={userId}
-                    userName={userName}
-                    onLogout={handleLogout}
-                  />
-                  <Feed token={token} userId={userId} />
-                  <Chat token={token} userId={userId} />
-                </Box>
+              token ? (
+                <>
+                  <Sidebar handleLogout={handleLogout} userName={userName} userId={userId} />
+                  <Box sx={{ flex: 1, ml: { xs: 0, md: '275px' }, p: 3, maxWidth: '1200px', mx: 'auto' }}>
+                    <Routes>
+                      <Route path="/home" element={<Feed token={token} userId={userId} userName={userName} />} />
+                      <Route
+                        path="/profile/:username"
+                        element={<Profile token={token} userId={userId} userName={userName} />}
+                      />
+                      <Route
+                        path="/messages"
+                        element={<Messages token={token} userId={userId} userName={userName} />}
+                      />
+                      <Route path="/explore" element={<NotImplemented title="Explorar" />} />
+                      <Route path="/notifications" element={<NotImplemented title="Notificaciones" />} />
+                      <Route path="/bookmarks" element={<NotImplemented title="Guardados" />} />
+                      <Route path="/lists" element={<NotImplemented title="Listas" />} />
+                      <Route path="/more" element={<NotImplemented title="Más Opciones" />} />
+                      <Route path="/" element={<Navigate to="/home" replace />} />
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </Box>
+                </>
               ) : (
-                <Login onLogin={handleLogin} />
+                <Navigate to="/login" replace />
               )
             }
           />
@@ -63,6 +101,6 @@ function App() {
       </Box>
     </Router>
   );
-}
+};
 
 export default App;

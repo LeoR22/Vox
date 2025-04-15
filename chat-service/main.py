@@ -7,14 +7,27 @@ import httpx
 import json
 from dotenv import load_dotenv
 import os
+import time
 
 load_dotenv()
 
 app = FastAPI(title="Chat Service")
 
-# Configuración de MongoDB
+# Configuración de MongoDB con reintentos
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:27017/chat_db")
-client = MongoClient(MONGO_URI)
+for attempt in range(10):
+    try:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        client.server_info()
+        print(f"Conexión a MongoDB establecida correctamente (intento {attempt + 1})")
+        break
+    except Exception as e:
+        print(f"Intento {attempt + 1} fallido: {str(e)}")
+        if attempt < 9:
+            time.sleep(5)
+        else:
+            raise Exception(f"No se pudo conectar a MongoDB tras 10 intentos: {str(e)}")
+
 db = client["chat_db"]
 messages_collection = db["messages"]
 
@@ -67,7 +80,6 @@ async def send_message(message: Message, token: str = Depends(oauth2_scheme)):
     if message.sender_id == message.receiver_id:
         raise HTTPException(status_code=400, detail="Cannot send message to yourself")
 
-    # Validar sender_id y receiver_id
     await validate_user(message.sender_id, token)
     await validate_user(message.receiver_id, token)
 
@@ -77,7 +89,6 @@ async def send_message(message: Message, token: str = Depends(oauth2_scheme)):
     message_id = str(result.inserted_id)
     message_dict["_id"] = message_id
 
-    # Enviar mensaje a través de WebSocket
     await manager.send_personal_message(message_dict, message.receiver_id)
 
     return {"message": "Message sent successfully", "message_id": message_id}
@@ -100,12 +111,14 @@ async def get_messages(user_id: str, receiver_id: str, token: str = Depends(oaut
 # Ruta WebSocket
 @app.websocket("/ws/chat/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
+    await websocket.accept()
+
     try:
-        token = await websocket.receive_text()
-        if not token.startswith("Bearer "):
+        token_message = await websocket.receive_text()
+        if not token_message.startswith("Bearer "):
             await websocket.close(code=1008, reason="Invalid token format")
             return
-        token = token.replace("Bearer ", "")
+        token = token_message.replace("Bearer ", "")
     except Exception:
         await websocket.close(code=1008, reason="Token required")
         return
@@ -120,7 +133,12 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
     try:
         while True:
             data = await websocket.receive_text()
-            message = json.loads(data)
+            try:
+                message = json.loads(data)
+            except json.JSONDecodeError:
+                await websocket.send_text("Invalid JSON format")
+                continue
+
             if not all(key in message for key in ["sender_id", "receiver_id", "content"]):
                 await websocket.send_text("Invalid message format")
                 continue

@@ -6,3 +6,5 @@ passlib[bcrypt]==1.7.4  # Para hashear contraseñas
 python-dotenv==1.0.1  # Para manejar variables de entorno
 httpx==0.27.2  # Para comunicación entre microservicios (en api-gateway)
 pydantic==2.1.1  # Para validación de datos
+pyjwt==2.6.0  # Para manejar JWT
+bcrypt==4.0.1  # Para hashear contraseñas
