@@ -14,12 +14,13 @@ const Explore = ({ token, userId }) => {
 
     const API_URL = 'http://localhost:8000';
 
-    const fetchUsers = async () => {
+    const fetchUsersAndFollowing = async () => {
         try {
             setLoading(true);
             setError(null);
 
-            console.log('Token enviado en fetchUsers:', token);
+            console.log('Token enviado en fetchUsersAndFollowing:', token);
+            console.log('userId:', userId);
 
             // Obtener la lista de usuarios
             try {
@@ -27,33 +28,45 @@ const Explore = ({ token, userId }) => {
                     headers: { Authorization: `Bearer ${token}` },
                 });
                 console.log('Users data:', usersResponse.data);
-                setUsers(usersResponse.data);
-                setFilteredUsers(usersResponse.data);
+                const normalizedUsers = usersResponse.data.map(user => ({
+                    ...user,
+                    user_id: user.user_id.toLowerCase().trim(),
+                }));
+                setUsers(normalizedUsers);
+                setFilteredUsers(normalizedUsers);
+                console.log('Normalized users:', normalizedUsers);
             } catch (error) {
-                const errorMessage = error.response?.data?.detail || error.message;
+                const errorMessage = error.response?.data?.detail || error.message || 'Error desconocido';
                 setError(`Error al obtener usuarios: ${errorMessage}`);
-                console.error('Error en fetchUsers (users):', error);
-                return; // Salir si falla la carga de usuarios
+                console.error('Error en fetchUsersAndFollowing (users):', error);
+                return;
             }
 
             // Obtener la lista de usuarios que el usuario actual sigue
-            try {
-                const followingResponse = await axios.get(`${API_URL}/friends/following/${userId}`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                console.log('Following data:', followingResponse.data);
-                const followingMap = {};
-                followingResponse.data.forEach((followedUser) => {
-                    followingMap[followedUser.followed_id] = true;
-                });
-                setFollowingStatus(followingMap);
-            } catch (error) {
-                const errorMessage = error.response?.data?.detail || error.message;
-                console.error('Error en fetchUsers (following):', errorMessage);
-                // No seteamos error aquí para no afectar la lista de usuarios
-            }
+            await fetchFollowing();
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchFollowing = async () => {
+        try {
+            const followingResponse = await axios.get(`${API_URL}/friends/following/${userId}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            console.log('Following data (raw response):', followingResponse.data);
+            const followingMap = {};
+            followingResponse.data.forEach((followedUser) => {
+                const followedId = followedUser.followed_id.toLowerCase().trim();
+                followingMap[followedId] = true;
+                console.log(`Añadiendo ${followedId} a followingMap`);
+            });
+            setFollowingStatus(followingMap);
+            console.log('Following status actualizado:', followingMap);
+        } catch (error) {
+            const errorMessage = error.response?.data?.detail || error.message || 'Error desconocido';
+            console.error('Error en fetchFollowing:', errorMessage);
+            setFollowingStatus({});
         }
     };
 
@@ -69,26 +82,63 @@ const Explore = ({ token, userId }) => {
     };
 
     const handleFollow = async (followId) => {
+        const normalizedFollowId = followId.toLowerCase().trim();
         try {
             console.log('Token enviado en handleFollow:', token);
+            console.log(`Intentando seguir a ${normalizedFollowId} (userId: ${userId})`);
             const response = await axios.post(
-                `${API_URL}/friends/follow/${followId}`,
+                `${API_URL}/friends/follow/${normalizedFollowId}`,
                 { user_id: userId },
                 {
                     headers: { Authorization: `Bearer ${token}` },
                 }
             );
-            setMessage(`Ahora sigues a ${followId}`);
+            setMessage(`Ahora sigues a ${normalizedFollowId}`);
             console.log('Follow response:', response.data);
-            setFollowingStatus((prev) => ({
-                ...prev,
-                [followId]: true,
-            }));
-            fetchUsers();
+            await fetchFollowing();
         } catch (error) {
-            const errorMessage = error.response?.data?.detail || error.message;
-            setMessage(`Error al seguir a ${followId}: ${errorMessage}`);
-            console.error('Error en handleFollow:', error);
+            console.error('Error completo en handleFollow:', error);
+            let errorMessage = 'Error desconocido';
+            if (error.response?.data?.detail) {
+                errorMessage = error.response.data.detail;
+            } else if (error.response?.data) {
+                errorMessage = JSON.stringify(error.response.data);
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+            setMessage(`Error al seguir a ${normalizedFollowId}: ${errorMessage}`);
+            await fetchFollowing();
+        }
+    };
+
+    const handleUnfollow = async (followId) => {
+        const normalizedFollowId = followId.toLowerCase().trim();
+        try {
+            console.log('Token enviado en handleUnfollow:', token);
+            console.log(`Intentando dejar de seguir a ${normalizedFollowId} (userId: ${userId})`);
+            console.log(`Estado actual de followingStatus para ${normalizedFollowId}:`, followingStatus[normalizedFollowId]);
+            const response = await axios.post(
+                `${API_URL}/friends/unfollow/${normalizedFollowId}`,
+                { user_id: userId },
+                {
+                    headers: { Authorization: `Bearer ${token}` },
+                }
+            );
+            setMessage(`Has dejado de seguir a ${normalizedFollowId}`);
+            console.log('Unfollow response:', response.data);
+            await fetchFollowing();
+        } catch (error) {
+            console.error('Error completo en handleUnfollow:', error);
+            let errorMessage = 'Error desconocido';
+            if (error.response?.data?.detail) {
+                errorMessage = error.response.data.detail;
+            } else if (error.response?.data) {
+                errorMessage = JSON.stringify(error.response.data);
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+            setMessage(`Error al dejar de seguir a ${normalizedFollowId}: ${errorMessage}`);
+            await fetchFollowing();
         }
     };
 
@@ -98,7 +148,7 @@ const Explore = ({ token, userId }) => {
             setLoading(false);
             return;
         }
-        fetchUsers();
+        fetchUsersAndFollowing();
     }, [token, userId]);
 
     if (loading) {
@@ -175,20 +225,30 @@ const Explore = ({ token, userId }) => {
                                 <Button
                                     variant="contained"
                                     sx={{
-                                        background: followingStatus[user.user_id]
+                                        background: followingStatus[user.user_id.toLowerCase().trim()]
                                             ? '#4a4b4c'
                                             : 'linear-gradient(90deg, #F87224, #D9332E)',
                                         color: '#fff',
                                         borderRadius: 20,
                                         '&:hover': {
-                                            background: followingStatus[user.user_id]
+                                            background: followingStatus[user.user_id.toLowerCase().trim()]
                                                 ? '#5a5b5c'
                                                 : 'linear-gradient(90deg, #E69520, #C9302C)',
                                         },
                                     }}
-                                    onClick={() => handleFollow(user.user_id)}
+                                    onClick={() => {
+                                        const normalizedUserId = user.user_id.toLowerCase().trim();
+                                        console.log(`Estado de followingStatus para ${normalizedUserId}:`, followingStatus[normalizedUserId]);
+                                        if (followingStatus[normalizedUserId]) {
+                                            console.log(`Intentando dejar de seguir a ${normalizedUserId}`);
+                                            handleUnfollow(normalizedUserId);
+                                        } else {
+                                            console.log(`Intentando seguir a ${normalizedUserId}`);
+                                            handleFollow(normalizedUserId);
+                                        }
+                                    }}
                                 >
-                                    {followingStatus[user.user_id] ? 'Siguiendo' : 'Seguir'}
+                                    {followingStatus[user.user_id.toLowerCase().trim()] ? 'Siguiendo' : 'Seguir'}
                                 </Button>
                             )}
                         </ListItem>

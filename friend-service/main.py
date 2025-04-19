@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Body
 from pymongo import MongoClient
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -85,45 +85,66 @@ async def update_follow_counts(user_id: str, follow_id: str, increment: bool, to
 
 # Rutas
 @app.post("/friends/follow/{follow_id}")
-async def follow_user(follow_id: str, request: FollowRequest, background_tasks: BackgroundTasks, authorization: str = None):
+async def follow_user(follow_id: str, user: dict = Body(...), authorization: str = Header(None)):
     try:
-        user_id = request.user_id
+        logger.info(f"Header Authorization recibido: {authorization}")
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Token de autorización requerido")
+        
+        user_id = user.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=400, detail="El campo user_id es requerido")
+
+        # Normalizar user_id y follow_id
+        user_id = user_id.lower().strip()
+        follow_id = follow_id.lower().strip()
+        logger.info(f"Intentando seguir: user_id={user_id}, follow_id={follow_id}")
+
         if user_id == follow_id:
             raise HTTPException(status_code=400, detail="No puedes seguirte a ti mismo")
 
-        # Verificar si los usuarios existen
-        if not authorization:
-            raise HTTPException(status_code=401, detail="Token de autorización requerido")
+        # Verificar si ambos usuarios existen
         if not await user_exists(user_id, authorization):
-            raise HTTPException(status_code=404, detail=f"Usuario {user_id} no encontrado")
+            raise HTTPException(status_code=404, detail=f"El usuario {user_id} no existe")
         if not await user_exists(follow_id, authorization):
-            raise HTTPException(status_code=404, detail=f"Usuario {follow_id} no encontrado")
+            raise HTTPException(status_code=404, detail=f"El usuario {follow_id} no existe")
 
         # Verificar si ya sigue al usuario
         existing_follow = friends_collection.find_one({"user_id": user_id, "followed_id": follow_id})
         if existing_follow:
+            logger.warning(f"Relación de seguimiento ya existe: user_id={user_id}, follow_id={follow_id}")
             raise HTTPException(status_code=400, detail="Ya sigues a este usuario")
 
-        # Añadir la relación de seguimiento
-        follow_data = {"user_id": user_id, "followed_id": follow_id, "created_at": datetime.utcnow()}
-        friends_collection.insert_one(follow_data)
+        # Crear la relación de seguimiento
+        follow_data = {
+            "user_id": user_id,
+            "followed_id": follow_id,
+            "created_at": datetime.utcnow()
+        }
+        result = friends_collection.insert_one(follow_data)
+        logger.info(f"Relación de seguimiento creada: {result.inserted_id}")
 
-        # Actualizar contadores en user-service
-        background_tasks.add_task(update_follow_counts, user_id, follow_id, True, authorization)
+        # Actualizar contadores de seguimiento usando la función correcta
+        await update_follow_counts(user_id, follow_id, True, authorization)
 
         return {"message": f"Ahora sigues a {follow_id}"}
+    except HTTPException as e:
+        raise e  # Re-lanzar excepciones HTTP para que se manejen correctamente
     except Exception as e:
         logger.error(f"Error al seguir usuario: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error al seguir usuario: {str(e)}")
 
 @app.post("/friends/unfollow/{follow_id}")
-async def unfollow_user(follow_id: str, request: FollowRequest, background_tasks: BackgroundTasks, authorization: str = None):
+async def unfollow_user(follow_id: str, request: FollowRequest, background_tasks: BackgroundTasks, authorization: str = Header(None)):
     try:
-        user_id = request.user_id
+        logger.info(f"Header Authorization recibido: {authorization}")
+        user_id = request.user_id.lower().strip()
+        follow_id = follow_id.lower().strip()
+        logger.info(f"Intentando dejar de seguir: user_id={user_id}, follow_id={follow_id}")
+
         if user_id == follow_id:
             raise HTTPException(status_code=400, detail="No puedes dejar de seguirte a ti mismo")
 
-        # Verificar si los usuarios existen
         if not authorization:
             raise HTTPException(status_code=401, detail="Token de autorización requerido")
         if not await user_exists(user_id, authorization):
@@ -131,13 +152,16 @@ async def unfollow_user(follow_id: str, request: FollowRequest, background_tasks
         if not await user_exists(follow_id, authorization):
             raise HTTPException(status_code=404, detail=f"Usuario {follow_id} no encontrado")
 
-        # Verificar si sigue al usuario
-        existing_follow = friends_collection.find_one({"user_id": user_id, "followed_id": follow_id})
-        if not existing_follow:
+        # Verificar si sigue al usuario y loguear todas las relaciones
+        existing_follows = list(friends_collection.find({"user_id": user_id, "followed_id": follow_id}))
+        logger.info(f"Relaciones encontradas para user_id={user_id}, follow_id={follow_id}: {existing_follows}")
+        if not existing_follows:
+            logger.warning(f"No se encontró relación de seguimiento: user_id={user_id}, follow_id={follow_id}")
             raise HTTPException(status_code=400, detail="No sigues a este usuario")
 
-        # Eliminar la relación de seguimiento
-        friends_collection.delete_one({"user_id": user_id, "followed_id": follow_id})
+        # Eliminar la relación de seguimiento (eliminará todas las coincidencias)
+        result = friends_collection.delete_many({"user_id": user_id, "followed_id": follow_id})
+        logger.info(f"Relación de seguimiento eliminada: {result.deleted_count} documentos eliminados")
 
         # Actualizar contadores en user-service
         background_tasks.add_task(update_follow_counts, user_id, follow_id, False, authorization)
@@ -148,24 +172,37 @@ async def unfollow_user(follow_id: str, request: FollowRequest, background_tasks
         raise HTTPException(status_code=500, detail=f"Error al dejar de seguir usuario: {str(e)}")
 
 @app.get("/friends/following/{user_id}")
-async def get_following(user_id: str, authorization: str = None):
+async def get_following(user_id: str, authorization: str = Header(None)):
     try:
-        # Verificar si el usuario existe
+        logger.info(f"Header Authorization recibido: {authorization}")
+        user_id = user_id.lower().strip()
         if not authorization:
             raise HTTPException(status_code=401, detail="Token de autorización requerido")
         if not await user_exists(user_id, authorization):
-            return []  # Devolver lista vacía si el usuario no existe, en lugar de un error 404
+            return []
 
+        # Obtener todas las relaciones y eliminar duplicados
         following = list(friends_collection.find({"user_id": user_id}))
-        return [{"followed_id": friend["followed_id"]} for friend in following]
+        logger.info(f"Usuarios seguidos por {user_id} (antes de eliminar duplicados): {[friend.get('followed_id') for friend in following]}")
+        # Eliminar duplicados manteniendo el orden
+        seen = set()
+        unique_following = []
+        for friend in following:
+            followed_id = friend.get("followed_id")
+            if followed_id and followed_id not in seen:
+                seen.add(followed_id)
+                unique_following.append(friend)
+        logger.info(f"Usuarios seguidos por {user_id} (después de eliminar duplicados): {[friend.get('followed_id') for friend in unique_following]}")
+        return [{"followed_id": friend.get("followed_id")} for friend in unique_following if friend.get("followed_id") is not None]
     except Exception as e:
         logger.error(f"Error al obtener usuarios seguidos: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error al obtener usuarios seguidos: {str(e)}")
 
 @app.get("/friends/followers/{user_id}")
-async def get_followers(user_id: str, authorization: str = None):
+async def get_followers(user_id: str, authorization: str = Header(None)):
     try:
-        # Verificar si el usuario existe
+        logger.info(f"Header Authorization recibido: {authorization}")
+        user_id = user_id.lower().strip()
         if not authorization:
             raise HTTPException(status_code=401, detail="Token de autorización requerido")
         if not await user_exists(user_id, authorization):
@@ -178,9 +215,10 @@ async def get_followers(user_id: str, authorization: str = None):
         raise HTTPException(status_code=500, detail=f"Error al obtener seguidores: {str(e)}")
 
 @app.get("/friends/{user_id}")
-async def get_friends(user_id: str, authorization: str = None):
+async def get_friends(user_id: str, authorization: str = Header(None)):
     try:
-        # Verificar si el usuario existe
+        logger.info(f"Header Authorization recibido: {authorization}")
+        user_id = user_id.lower().strip()
         if not authorization:
             raise HTTPException(status_code=401, detail="Token de autorización requerido")
         if not await user_exists(user_id, authorization):
