@@ -1,13 +1,16 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { Box } from '@mui/material';
+import axios from 'axios';
 import Sidebar from './components/Sidebar';
 import Feed from './components/Feed';
 import Login from './components/Login';
 import Register from './components/Register';
 import Profile from './components/Profile';
 import Messages from './components/Messages';
-import Explore from './components/Explore'; // Nueva importación
+import Explore from './components/Explore';
+import Bookmarks from './components/Bookmarks';
+import Notifications from './components/Notifications';
 
 const NotImplemented = ({ title }) => (
   <Box sx={{ color: '#fff', textAlign: 'center', mt: 5 }}>
@@ -27,6 +30,8 @@ const App = () => {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [userId, setUserId] = useState(localStorage.getItem('userId') || '');
   const [userName, setUserName] = useState(localStorage.getItem('userName') || '');
+  const [posts, setPosts] = useState([]);
+  const API_URL = 'http://localhost:8000';
 
   const handleLogin = useCallback((newToken, newUserId, newUserName) => {
     console.log('Logging in:', { newToken, newUserId, newUserName });
@@ -56,6 +61,24 @@ const App = () => {
     localStorage.removeItem('userName');
   }, []);
 
+  const fetchPosts = useCallback(async () => {
+    if (!token) return;
+    try {
+      const response = await axios.get(`${API_URL}/posts`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setPosts(response.data);
+    } catch (err) {
+      console.error('Error fetching posts:', err);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (token) {
+      fetchPosts();
+    }
+  }, [token, fetchPosts]);
+
   useEffect(() => {
     console.log('App state:', { token: !!token, tokenValue: token, userId, userName });
   }, [token, userId, userName]);
@@ -74,7 +97,10 @@ const App = () => {
                   <Sidebar handleLogout={handleLogout} userName={userName} userId={userId} />
                   <Box sx={{ flex: 1, ml: { xs: 0, md: '275px' }, p: 3, maxWidth: '1200px', mx: 'auto' }}>
                     <Routes>
-                      <Route path="/home" element={<Feed token={token} userId={userId} userName={userName} />} />
+                      <Route
+                        path="/home"
+                        element={<Feed token={token} userId={userId} userName={userName} posts={posts} fetchPosts={fetchPosts} />}
+                      />
                       <Route
                         path="/profile/:username"
                         element={<Profile token={token} userId={userId} userName={userName} />}
@@ -87,11 +113,15 @@ const App = () => {
                         path="/explore"
                         element={<Explore token={token} userId={userId} />}
                       />
-                      <Route path="/notifications" element={<NotImplemented title="Notificaciones" />} />
-                      <Route path="/explore" element={<NotImplemented title="Explorar" />} />
-                      <Route path="/bookmarks" element={<NotImplemented title="Guardados" />} />
-                      <Route path="/lists" element={<NotImplemented title="Listas" />} />
-                      <Route path="/more" element={<NotImplemented title="Más Opciones" />} />
+                      <Route
+                        path="/bookmarks"
+                        element={<Bookmarks token={token} userId={userId} userName={userName} />}
+                      />
+                      <Route
+                        path="/notifications"
+                        element={<Notifications userId={userId} token={token} />}
+                      />
+                      <Route path="/more" element={<NotImplemented title="AI Vox" />} />
                       <Route path="/" element={<Navigate to="/home" replace />} />
                       <Route path="*" element={<NotFound />} />
                     </Routes>

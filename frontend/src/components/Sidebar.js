@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Box, List, ListItem, ListItemIcon, ListItemText, Button, Typography, Avatar } from '@mui/material';
-import { Home, Explore, Notifications, Message, Bookmark, ListAlt, Person, MoreHoriz, Logout } from '@mui/icons-material';
+import { Home, Explore, Notifications, Message, Bookmark, ListAlt, Person, MoreHoriz, Logout, SmartToyRounded } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
@@ -34,9 +34,8 @@ const Sidebar = ({ handleLogout, userName, userId }) => {
         { text: 'Notificaciones', icon: <Notifications />, path: '/notifications' },
         { text: 'Mensajes', icon: <Message />, path: '/messages' },
         { text: 'Guardados', icon: <Bookmark />, path: '/bookmarks' },
-        { text: 'Listas', icon: <ListAlt />, path: '/lists' },
         { text: 'Perfil', icon: <Person />, path: profilePath },
-        { text: 'Más', icon: <MoreHoriz />, path: '/more' },
+        { text: 'VoxAI', icon: <SmartToyRounded />, path: '/more' },
     ];
 
     const handleNavigation = (path) => {

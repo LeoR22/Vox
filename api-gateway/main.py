@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import logging
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
+from fastapi import WebSocket, WebSocketDisconnect
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -27,10 +28,10 @@ app.add_middleware(
 AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://auth-service:8001")
 USER_SERVICE_URL = os.getenv("USER_SERVICE_URL", "http://user-service:8000")
 POST_SERVICE_URL = os.getenv("POST_SERVICE_URL", "http://post-service:8000")
-LIKE_SERVICE_URL = os.getenv("LIKE_SERVICE_URL", "http://like-service:8000")
-COMMENT_SERVICE_URL = os.getenv("COMMENT_SERVICE_URL", "http://comment-service:8000")
 FRIEND_SERVICE_URL = os.getenv("FRIEND_SERVICE_URL", "http://friend-service:8006")
 CHAT_SERVICE_URL = os.getenv("CHAT_SERVICE_URL", "http://chat-service:8007")
+BOOKMARK_SERVICE_URL = os.getenv("BOOKMARK_SERVICE_URL", "http://bookmark-service:8009")
+NOTIFICATION_SERVICE_URL = os.getenv("NOTIFICATION_SERVICE_URL", "http://notification-service:8008")
 
 # Helper function para manejar solicitudes HTTP
 async def forward_request(method: str, url: str, json=None, data=None, files=None, headers=None, timeout=10):
@@ -64,6 +65,18 @@ async def forward_request(method: str, url: str, json=None, data=None, files=Non
         except httpx.RequestError as e:
             logger.error(f"Error de red en {method} a {url}: {str(e)}")
             raise HTTPException(status_code=503, detail=f"No se pudo conectar al servicio en {url}")
+
+# WebSocket proxy
+async def forward_websocket(websocket: WebSocket, url: str):
+    async with httpx.AsyncClient() as client:
+        try:
+            async with client.stream("GET", url, timeout=None) as response:
+                await websocket.accept()
+                async for chunk in response.aiter_bytes():
+                    await websocket.send_bytes(chunk)
+        except Exception as e:
+            logger.error(f"Error en WebSocket proxy a {url}: {str(e)}")
+            await websocket.close()
 
 # Auth Service
 @app.post("/auth/login")
@@ -101,7 +114,7 @@ async def update_user(user_id: str, request: Request):
     # Manejar archivos (profile_image y cover_image)
     if "profile_image" in form_data and form_data["profile_image"] and form_data["profile_image"].filename:
         file_content = await form_data["profile_image"].read()
-        if file_content:  # Verificar que el archivo no esté vacío
+        if file_content:
             files["profile_image"] = (
                 form_data["profile_image"].filename,
                 file_content,
@@ -109,7 +122,7 @@ async def update_user(user_id: str, request: Request):
             )
     if "cover_image" in form_data and form_data["cover_image"] and form_data["cover_image"].filename:
         file_content = await form_data["cover_image"].read()
-        if file_content:  # Verificar que el archivo no esté vacío
+        if file_content:
             files["cover_image"] = (
                 form_data["cover_image"].filename,
                 file_content,
@@ -122,7 +135,6 @@ async def update_user(user_id: str, request: Request):
     if "name" in form_data and form_data["name"] is not None:
         data["name"] = form_data["name"]
 
-    # Verificar que haya algo para actualizar
     if not files and not data:
         raise HTTPException(status_code=400, detail="No se proporcionaron datos ni archivos para actualizar")
 
@@ -157,21 +169,26 @@ async def get_post(post_id: str, request: Request):
     logger.info(f"Enviando solicitud de post a {POST_SERVICE_URL}/posts/{post_id}")
     return await forward_request("GET", f"{POST_SERVICE_URL}/posts/{post_id}", headers=headers)
 
-# Like Service
 @app.post("/posts/{post_id}/likes")
 async def toggle_like(post_id: str, request: Request):
-    data = await request.json()
+    data = await request.form()
     headers = {"Authorization": request.headers.get("Authorization", "")}
-    logger.info(f"Enviando solicitud de like a {LIKE_SERVICE_URL}/posts/{post_id}/likes")
-    return await forward_request("POST", f"{LIKE_SERVICE_URL}/posts/{post_id}/likes", json=data, headers=headers)
+    logger.info(f"Enviando solicitud de like a {POST_SERVICE_URL}/posts/{post_id}/likes")
+    return await forward_request("POST", f"{POST_SERVICE_URL}/posts/{post_id}/likes", data=data, headers=headers)
 
-# Comment Service
 @app.post("/posts/{post_id}/comments")
 async def add_comment(post_id: str, request: Request):
     data = await request.json()
     headers = {"Authorization": request.headers.get("Authorization", "")}
-    logger.info(f"Enviando solicitud de comentario a {COMMENT_SERVICE_URL}/posts/{post_id}/comments")
-    return await forward_request("POST", f"{COMMENT_SERVICE_URL}/posts/{post_id}/comments", json=data, headers=headers)
+    logger.info(f"Enviando solicitud de comentario a {POST_SERVICE_URL}/posts/{post_id}/comments")
+    return await forward_request("POST", f"{POST_SERVICE_URL}/posts/{post_id}/comments", json=data, headers=headers)
+
+@app.post("/posts/{post_id}/comments/{comment_index}/likes")
+async def toggle_comment_like(post_id: str, comment_index: int, request: Request):
+    data = await request.form()
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de like a comentario a {POST_SERVICE_URL}/posts/{post_id}/comments/{comment_index}/likes")
+    return await forward_request("POST", f"{POST_SERVICE_URL}/posts/{post_id}/comments/{comment_index}/likes", data=data, headers=headers)
 
 # Friend Service
 @app.post("/friends/follow/{follow_id}")
@@ -206,20 +223,47 @@ async def get_friends(user_id: str, request: Request):
     logger.info(f"Enviando solicitud de amigos a {FRIEND_SERVICE_URL}/friends/{user_id}")
     return await forward_request("GET", f"{FRIEND_SERVICE_URL}/friends/{user_id}", headers=headers)
 
-# Chat Service (Comentado temporalmente para evitar errores)
-# @app.get("/messages")
-# async def get_messages(request: Request):
-#     headers = {"Authorization": request.headers.get("Authorization", "")}
-#     query_params = request.query_params
-#     logger.info(f"Enviando solicitud de mensajes a {CHAT_SERVICE_URL}/messages?{query_params}")
-#     return await forward_request("GET", f"{CHAT_SERVICE_URL}/messages?{query_params}", headers=headers)
+# Chat Service
+@app.get("/chat/messages/{user_id}/{receiver_id}")
+async def get_messages(user_id: str, receiver_id: str, request: Request):
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de mensajes a {CHAT_SERVICE_URL}/chat/messages/{user_id}/{receiver_id}")
+    return await forward_request("GET", f"{CHAT_SERVICE_URL}/chat/messages/{user_id}/{receiver_id}", headers=headers)
 
-# @app.post("/messages")
-# async def send_message(request: Request):
-#     data = await request.json()
-#     headers = {"Authorization": request.headers.get("Authorization", "")}
-#     logger.info(f"Enviando solicitud de envío de mensaje a {CHAT_SERVICE_URL}/messages")
-#     return await forward_request("POST", f"{CHAT_SERVICE_URL}/messages", json=data, headers=headers)
+@app.post("/alerts")
+async def send_message(request: Request):
+    data = await request.json()
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de envío de mensaje a {CHAT_SERVICE_URL}/chat/messages")
+    return await forward_request("POST", f"{CHAT_SERVICE_URL}/chat/messages", json=data, headers=headers)
+
+# Notification Service
+@app.get("/notifications/{user_id}")
+async def get_notifications(user_id: str, request: Request):
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de notificaciones a {NOTIFICATION_SERVICE_URL}/notifications/{user_id}")
+    return await forward_request("GET", f"{NOTIFICATION_SERVICE_URL}/notifications/{user_id}", headers=headers)
+
+@app.websocket("/ws/notifications/{user_id}")
+async def websocket_notifications(websocket: WebSocket, user_id: str):
+    async with httpx.AsyncClient() as client:
+        ws_url = f"ws://{NOTIFICATION_SERVICE_URL.split('http://')[1]}/ws/notifications/{user_id}"
+        logger.info(f"Conectando WebSocket a {ws_url}")
+        try:
+            async with client.websocket(ws_url) as backend_ws:
+                await websocket.accept()
+                try:
+                    while True:
+                        data = await backend_ws.receive_json()
+                        await websocket.send_json(data)
+                except WebSocketDisconnect:
+                    logger.info(f"Cliente WebSocket desconectado para user_id: {user_id}")
+                except Exception as e:
+                    logger.error(f"Error en WebSocket para user_id: {user_id}: {str(e)}")
+                    await websocket.close()
+        except Exception as e:
+            logger.error(f"Error conectando al backend WebSocket {ws_url}: {str(e)}")
+            await websocket.close()
 
 # Proxy para servir imágenes desde el post-service o user-service
 @app.get("/uploads/{path:path}")
@@ -227,7 +271,6 @@ async def serve_uploaded_file(path: str):
     logger.info(f"Intentando proxificar imagen: {path}")
     async with httpx.AsyncClient() as client:
         try:
-            # Primero intenta con post-service
             response = await client.get(f"{POST_SERVICE_URL}/uploads/{path}")
             response.raise_for_status()
             logger.info(f"Imagen obtenida de post-service: {path}")
@@ -239,7 +282,6 @@ async def serve_uploaded_file(path: str):
         except httpx.HTTPStatusError as e:
             logger.warning(f"Imagen no encontrada en post-service: {path}, intentando con user-service")
             try:
-                # Intenta con user-service
                 response = await client.get(f"{USER_SERVICE_URL}/uploads/{path}")
                 response.raise_for_status()
                 logger.info(f"Imagen obtenida de user-service: {path}")
@@ -254,6 +296,26 @@ async def serve_uploaded_file(path: str):
         except httpx.RequestError as e:
             logger.error(f"Error de red al obtener imagen: {str(e)}")
             raise HTTPException(status_code=503, detail="No se pudo conectar al servicio")
+
+# Bookmark Service
+@app.post("/bookmarks")
+async def toggle_bookmark(request: Request):
+    data = await request.json()
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de bookmark a {BOOKMARK_SERVICE_URL}/bookmarks")
+    return await forward_request("POST", f"{BOOKMARK_SERVICE_URL}/bookmarks", json=data, headers=headers)
+
+@app.get("/bookmarks/user/{user_id}")
+async def get_bookmarks(user_id: str, request: Request):
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de bookmarks a {BOOKMARK_SERVICE_URL}/bookmarks/user/{user_id}")
+    return await forward_request("GET", f"{BOOKMARK_SERVICE_URL}/bookmarks/user/{user_id}", headers=headers)
+
+@app.get("/bookmarks/check")
+async def check_bookmark(user_id: str, post_id: str, request: Request):
+    headers = {"Authorization": request.headers.get("Authorization", "")}
+    logger.info(f"Enviando solicitud de verificación de bookmark a {BOOKMARK_SERVICE_URL}/bookmarks/check?user_id={user_id}&post_id={post_id}")
+    return await forward_request("GET", f"{BOOKMARK_SERVICE_URL}/bookmarks/check?user_id={user_id}&post_id={post_id}", headers=headers)
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,146 +1,168 @@
 version: '3.8'
 
 services:
-  api-gateway:
-    build: ./api-gateway
-    ports:
-      - "8000:8000"
-    environment:
-      - AUTH_SERVICE_URL=http://auth-service:8001
-      - USER_SERVICE_URL=http://user-service:8000
-      - POST_SERVICE_URL=http://post-service:8000
-      - LIKE_SERVICE_URL=http://like-service:8000
-      - COMMENT_SERVICE_URL=http://comment-service:8000
-      - FRIEND_SERVICE_URL=http://friend-service:8006
-      - CHAT_SERVICE_URL=http://chat-service:8007
-    depends_on:
-      - auth-service
-      - user-service
-      - post-service
-      - like-service
-      - comment-service
-      - friend-service
-      - chat-service
-    networks:
-      - twitter_clone_network
-
-  auth-service:
-    build: ./auth-service
-    ports:
-      - "8001:8001"
-    environment:
-      - MONGO_URI=mongodb://mongo:27017/auth_db
-      - JWT_SECRET=your_jwt_secret
-    depends_on:
-      mongo:
-        condition: service_healthy
-    networks:
-      - twitter_clone_network
-
-  user-service:
-    build: ./user-service
-    ports:
-      - "8002:8000"
-    environment:
-      - MONGO_URI=mongodb://mongo:27017/user_db
-    volumes:
-      - ./user-service/uploads:/app/uploads
-    depends_on:
-      mongo:
-        condition: service_healthy
-    networks:
-      - twitter_clone_network
-
-  post-service:
-    build: ./post-service
-    ports:
-      - "8003:8000"
-    environment:
-      - MONGO_URI=mongodb://mongo:27017/post_db
-      - API_GATEWAY_URL=http://api-gateway:8000
-    volumes:
-      - ./post-service/uploads:/app/uploads
-    depends_on:
-      mongo:
-        condition: service_healthy
-    networks:
-      - twitter_clone_network
-
-  like-service:
-    build: ./like-service
-    ports:
-      - "8008:8000"
-    environment:
-      - MONGO_URI=mongodb://mongo:27017/post_db
-    depends_on:
-      mongo:
-        condition: service_healthy
-    networks:
-      - twitter_clone_network
-
-  comment-service:
-    build: ./comment-service
-    ports:
-      - "8004:8000"
-    environment:
-      - MONGO_URI=mongodb://mongo:27017/post_db
-    depends_on:
-      mongo:
-        condition: service_healthy
-    networks:
-      - twitter_clone_network
-
-  friend-service:
-    build: ./friend-service
-    ports:
-      - "8006:8006"
-    environment:
-      - MONGO_URI=mongodb://mongo:27017/friend_db
-    depends_on:
-      mongo:
-        condition: service_healthy
-    networks:
-      - twitter_clone_network
-
-  chat-service:
-    build: ./chat-service
-    ports:
-      - "8007:8000"
-    environment:
-      - MONGO_URI=mongodb://mongo:27017/chat_db
-    depends_on:
-      mongo:
-        condition: service_healthy
-    networks:
-      - twitter_clone_network
-
   mongo:
     image: mongo:latest
+    container_name: vox-mongo
     ports:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
-    healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh mongodb://localhost:27017/test --quiet
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
     networks:
-      - twitter_clone_network
+      - vox-network
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+    container_name: vox-api-gateway
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo
+      - post-service
+      - notification-service
+    environment:
+      - MONGO_URI=mongodb://mongo:27017
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      - USER_SERVICE_URL=http://user-service:8000
+      - POST_SERVICE_URL=http://post-service:8000
+      - FRIEND_SERVICE_URL=http://friend-service:8006
+      - CHAT_SERVICE_URL=http://chat-service:8007
+      - BOOKMARK_SERVICE_URL=http://bookmark-service:8009
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8008
+    volumes:
+      - ./api-gateway:/app
+    networks:
+      - vox-network
+
+  post-service:
+    build:
+      context: ./post-service
+    container_name: vox-post-service
+    ports:
+      - "8002:8000"
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/post_db
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8008
+      - FRIEND_SERVICE_URL=http://friend-service:8006
+    volumes:
+      - ./post-service:/app
+      - uploads:/app/uploads
+    networks:
+      - vox-network
+
+  friend-service:
+    build:
+      context: ./friend-service
+    container_name: vox-friend-service
+    ports:
+      - "8006:8006"
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/friend_db
+    volumes:
+      - ./friend-service:/app
+    networks:
+      - vox-network
+
+  notification-service:
+    build:
+      context: ./notification-service
+    container_name: vox-notification-service
+    ports:
+      - "8008:8008"
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/notification_db
+    volumes:
+      - ./notification-service:/app
+    networks:
+      - vox-network
+
+  auth-service:
+    build:
+      context: ./auth-service
+    container_name: vox-auth-service
+    ports:
+      - "8001:8001"
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/auth_db
+    volumes:
+      - ./auth-service:/app
+    networks:
+      - vox-network
+
+  user-service:
+    build:
+      context: ./user-service
+    container_name: vox-user-service
+    ports:
+      - "8003:8000"
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/user_db
+    volumes:
+      - ./user-service:/app
+      - uploads:/app/uploads
+    networks:
+      - vox-network
+
+  chat-service:
+    build:
+      context: ./chat-service
+    container_name: vox-chat-service
+    ports:
+      - "8007:8007"
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/chat_db
+    volumes:
+      - ./chat-service:/app
+    networks:
+      - vox-network
+
+  bookmark-service:
+    build:
+      context: ./bookmark-service
+    container_name: vox-bookmark-service
+    ports:
+      - "8009:8009"
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/bookmark_db
+    volumes:
+      - ./bookmark-service:/app
+    networks:
+      - vox-network
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vox-frontend
     ports:
       - "3000:80"
     depends_on:
       - api-gateway
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     networks:
-      - twitter_clone_network
-
-networks:
-  twitter_clone_network:
-    driver: bridge
+      - vox-network
 
 volumes:
   mongo_data:
+  uploads:
+
+networks:
+  vox-network:
+    driver: bridge

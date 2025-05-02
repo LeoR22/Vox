@@ -4,32 +4,13 @@ import { PhotoCamera, Search as SearchIcon } from '@mui/icons-material';
 import axios from 'axios';
 import Post from './Post';
 
-const Feed = ({ token, userId, userName }) => {
-    const [posts, setPosts] = useState([]);
+const Feed = ({ token, userId, userName, posts, fetchPosts }) => {
     const [newPost, setNewPost] = useState('');
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
     const [message, setMessage] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
-
     const API_URL = 'http://localhost:8000';
-
-    const fetchPosts = useCallback(async () => {
-        try {
-            const response = await axios.get(`${API_URL}/posts`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            // Enriquecer posts con el nombre del usuario actual (simplificado)
-            const enrichedPosts = response.data.map((post) => ({
-                ...post,
-                userName: post.user_id === userId ? userName : 'Desconocido', // Temporal hasta implementar GET /users
-            }));
-            setPosts(enrichedPosts);
-            setMessage('');
-        } catch (error) {
-            setMessage('Error al obtener posts: ' + (error.response?.data?.detail || error.message));
-        }
-    }, [token, userId, userName]);
 
     const handleImageChange = (e) => {
         const file = e.target.files[0];
@@ -68,9 +49,10 @@ const Feed = ({ token, userId, userName }) => {
         }
     };
 
-    useEffect(() => {
-        fetchPosts();
-    }, [fetchPosts]);
+    const handleSearchChange = (e) => {
+        setSearchQuery(e.target.value);
+        // TODO: Implement search functionality
+    };
 
     return (
         <Box sx={{ display: 'flex', gap: 3 }}>
@@ -81,6 +63,8 @@ const Feed = ({ token, userId, userName }) => {
                         placeholder="Buscar en Vox"
                         variant="outlined"
                         size="small"
+                        value={searchQuery}
+                        onChange={handleSearchChange}
                         sx={{
                             bgcolor: '#3a3b3c',
                             borderRadius: 5,
