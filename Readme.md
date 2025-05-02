@@ -116,6 +116,10 @@ vox/
 
 🏆 Figma diseño <https://www.figma.com/design/UI31g6iqMKotPKzEPZrSvu/leo?node-id=0-1&p=f&t=0PgwNXxN04tiPIE4-0>
 
+### Proyecto
+
+![red_social](img/proyecto.png)
+
 ## 📥 Clonar y Descargar el Proyecto
 
 
